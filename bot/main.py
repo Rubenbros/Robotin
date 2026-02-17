@@ -20,6 +20,8 @@ from bot.handlers.commands import (
     nochat_command,
     newproject_command,
     stop_command,
+    ask_command,
+    devbot_command,
 )
 from bot.handlers.text_handler import handle_text
 from bot.handlers.image_handler import handle_image
@@ -57,7 +59,8 @@ def main() -> None:
     app.add_handler(CommandHandler("nochat", nochat_command))
     app.add_handler(CommandHandler("newproject", newproject_command))
     app.add_handler(CommandHandler("stop", stop_command))
-
+    app.add_handler(CommandHandler("ask", ask_command))
+    app.add_handler(CommandHandler("devbot", devbot_command))
 
     # Callbacks (inline keyboard)
     app.add_handler(CallbackQueryHandler(handle_callback))

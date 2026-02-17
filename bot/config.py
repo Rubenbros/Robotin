@@ -19,7 +19,7 @@ CLAUDE_PROJECTS_DIR = Path(os.getenv("CLAUDE_PROJECTS_DIR", str(Path.home() / "C
 CLAUDE_SKILLS_DIR = Path(os.getenv("CLAUDE_SKILLS_DIR", str(Path.home() / ".claude" / "skills")))
 
 STANDALONE_PROJECTS: dict[str, str] = {
-    # "nombre": r"C:\ruta\al\proyecto",
+    "Epic Boss Fight Simulator": str(Path.home() / "Epic Boss Fight Simulator"),
 }
 
 CLAUDE_MAX_TURNS = 0  # 0 = sin límite de turnos

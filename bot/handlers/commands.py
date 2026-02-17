@@ -5,10 +5,10 @@ from telegram.ext import ContextTypes
 
 from pathlib import Path
 
-from bot.config import CLAUDE_PROJECTS_DIR
+from bot.config import BASE_DIR, CLAUDE_PROJECTS_DIR
 from bot.security import authorized_only
 from bot.services import project_manager, session_manager
-from bot.services.claude_service import stop_claude, is_running
+from bot.services.claude_service import run_claude, stop_claude, is_running
 from bot.services.message_formatter import send_long_message
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "/clear - Limpiar sesion del proyecto activo\n"
         "/newchat - Nueva conversacion (alias de /clear)\n"
         "/stop - Detener ejecucion en curso\n"
+        "/ask `<pregunta>` - Pregunta rapida sin cambiar de proyecto\n"
+        "/devbot - Trabajar en el propio bot\n"
         "/gemini - Generar imagenes con Gemini\n"
         "/help - Mostrar ayuda\n\n"
         "Sin proyecto: funciona como chat normal con Claude.\n"
@@ -61,6 +63,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "`/clear` - Limpiar sesion actual\n"
         "`/newchat` - Alias de /clear\n"
         "`/stop` - Detener ejecucion en curso\n"
+        "`/ask <pregunta>` - Pregunta rapida sin cambiar de proyecto\n"
+        "`/devbot` - Trabajar en el propio bot\n"
         "`/gemini [rapido|pro] [clean] <prompt>` - Generar imagen\n\n"
         "*Uso:*\n"
         "1. Selecciona un proyecto con /projects\n"
@@ -118,7 +122,14 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     session_key = active or "__chat__"
     session_id = session_manager.get_session_id(session_key)
 
-    if active:
+    if active == "__devbot__":
+        text = (
+            f"*Estado actual*\n\n"
+            f"*Modo:* Dev-bot (mejorando el propio bot)\n"
+            f"*Ruta:* `{BASE_DIR}`\n"
+            f"*Session ID:* `{session_id or 'ninguna'}`\n"
+        )
+    elif active:
         proj = project_manager.find_project(active)
         text = (
             f"*Estado actual*\n\n"
@@ -184,3 +195,47 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("Detenido.")
     else:
         await update.message.reply_text("No hay nada en ejecucion.")
+
+
+@authorized_only
+async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Pregunta rápida a Claude sin cambiar el proyecto activo."""
+    if not context.args:
+        await update.message.reply_text("Uso: `/ask <pregunta>`", parse_mode="Markdown")
+        return
+
+    prompt = " ".join(context.args)
+    session_id = session_manager.get_session_id("__chat__")
+
+    thinking_msg = await update.message.reply_text("Procesando...")
+
+    async def _notify(msg: str):
+        try:
+            await thinking_msg.edit_text(msg)
+        except Exception:
+            pass
+
+    result = await run_claude(
+        prompt=prompt,
+        cwd=None,
+        session_id=session_id,
+        on_notification=_notify,
+    )
+
+    await thinking_msg.delete()
+
+    if result.get("session_id") and result["session_id"] != session_id:
+        session_manager.save_session_id("__chat__", result["session_id"])
+
+    response = result.get("response", "Sin respuesta.")
+    await send_long_message(update, response)
+
+
+@authorized_only
+async def devbot_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Selecciona el propio bot como proyecto activo para iterar sobre él."""
+    session_manager.set_active_project("__devbot__")
+    await update.message.reply_text(
+        f"Modo dev-bot activado.\n`{BASE_DIR}`\n\nAhora puedes enviar mensajes para mejorar el bot.",
+        parse_mode="Markdown",
+    )

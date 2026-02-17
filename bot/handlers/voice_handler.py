@@ -4,7 +4,7 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.config import TEMP_DIR
+from bot.config import BASE_DIR, TEMP_DIR
 from bot.security import authorized_only
 from bot.services import session_manager, project_manager
 from bot.services.claude_service import run_claude
@@ -18,7 +18,10 @@ logger = logging.getLogger(__name__)
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     active = session_manager.get_active_project()
 
-    if active:
+    if active == "__devbot__":
+        cwd = str(BASE_DIR)
+        session_key = "__devbot__"
+    elif active:
         proj = project_manager.find_project(active)
         if not proj:
             await update.message.reply_text(f"Proyecto `{active}` no encontrado.", parse_mode="Markdown")
