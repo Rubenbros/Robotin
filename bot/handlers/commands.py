@@ -205,7 +205,6 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     prompt = " ".join(context.args)
-    session_id = session_manager.get_session_id("__chat__")
 
     thinking_msg = await update.message.reply_text("Procesando...")
 
@@ -218,14 +217,11 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     result = await run_claude(
         prompt=prompt,
         cwd=None,
-        session_id=session_id,
+        session_id=None,
         on_notification=_notify,
     )
 
     await thinking_msg.delete()
-
-    if result.get("session_id") and result["session_id"] != session_id:
-        session_manager.save_session_id("__chat__", result["session_id"])
 
     response = result.get("response", "Sin respuesta.")
     await send_long_message(update, response)
