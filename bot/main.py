@@ -32,6 +32,14 @@ from bot.handlers.commands import (
     ask_command,
     devbot_command,
 )
+from bot.handlers.coordinator_commands import (
+    spawn_command,
+    bots_command,
+    kill_command,
+    stopall_command,
+    addtoken_command,
+    removetoken_command,
+)
 from bot.handlers.text_handler import handle_text
 from bot.handlers.image_handler import handle_image
 from bot.handlers.voice_handler import handle_voice
@@ -45,7 +53,33 @@ logger = logging.getLogger(__name__)
 
 
 async def _on_startup(app) -> None:
-    """Notifica al usuario que el bot se ha iniciado."""
+    """Registra comandos en el menu de Telegram y notifica inicio."""
+    from telegram import BotCommand
+
+    commands = [
+        BotCommand("projects", "Lista de proyectos"),
+        BotCommand("select", "Seleccionar proyecto"),
+        BotCommand("newproject", "Crear proyecto nuevo"),
+        BotCommand("nochat", "Volver a chat libre"),
+        BotCommand("status", "Info del proyecto y sesion"),
+        BotCommand("clear", "Limpiar sesion actual"),
+        BotCommand("stop", "Detener ejecucion en curso"),
+        BotCommand("ask", "Pregunta rapida sin sesion"),
+        BotCommand("devbot", "Trabajar en el propio bot"),
+        BotCommand("gemini", "Generar imagen con Gemini"),
+        BotCommand("spawn", "Crear worker bot"),
+        BotCommand("bots", "Ver workers activos"),
+        BotCommand("kill", "Detener un worker"),
+        BotCommand("stopall", "Detener todos los workers"),
+        BotCommand("addtoken", "Agregar token al pool"),
+        BotCommand("removetoken", "Quitar token del pool"),
+        BotCommand("help", "Ayuda"),
+    ]
+    try:
+        await app.bot.set_my_commands(commands)
+    except Exception as e:
+        logger.warning(f"No se pudieron registrar comandos: {e}")
+
     try:
         await app.bot.send_message(chat_id=AUTHORIZED_USER_ID, text="🟢 Bot iniciado")
     except Exception as e:
@@ -74,6 +108,12 @@ def _send_shutdown_sync():
 
 def _signal_handler(signum, frame):
     """Maneja SIGTERM/SIGINT para enviar mensaje antes de morir."""
+    # Matar todos los workers antes de morir
+    try:
+        from bot.services.worker_registry import kill_all_workers
+        kill_all_workers()
+    except Exception:
+        pass
     _send_shutdown_sync()
     sys.exit(0)
 
@@ -93,6 +133,19 @@ def main() -> None:
 
     logger.info(f"Usuario autorizado: {AUTHORIZED_USER_ID}")
 
+    # Limpiar workers/tokens huérfanos de ejecuciones anteriores
+    try:
+        from bot.services.token_pool import release_stale_tokens
+        from bot.services.worker_registry import cleanup_dead_workers
+        stale = release_stale_tokens()
+        dead = cleanup_dead_workers()
+        if stale:
+            logger.info(f"Tokens huerfanos liberados: {stale}")
+        if dead:
+            logger.info(f"Workers muertos limpiados: {dead}")
+    except Exception as e:
+        logger.warning(f"Error limpiando estado previo: {e}")
+
     # Registrar signal handlers para apagado limpio
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
@@ -104,7 +157,7 @@ def main() -> None:
         .build()
     )
 
-    # Comandos
+    # Comandos existentes (chat libre, proyectos, etc.)
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("projects", projects_command))
@@ -117,6 +170,14 @@ def main() -> None:
     app.add_handler(CommandHandler("stop", stop_command))
     app.add_handler(CommandHandler("ask", ask_command))
     app.add_handler(CommandHandler("devbot", devbot_command))
+
+    # Comandos del coordinador (multi-bot)
+    app.add_handler(CommandHandler("spawn", spawn_command))
+    app.add_handler(CommandHandler("bots", bots_command))
+    app.add_handler(CommandHandler("kill", kill_command))
+    app.add_handler(CommandHandler("stopall", stopall_command))
+    app.add_handler(CommandHandler("addtoken", addtoken_command))
+    app.add_handler(CommandHandler("removetoken", removetoken_command))
 
     # Callbacks (inline keyboard)
     app.add_handler(CallbackQueryHandler(handle_callback))

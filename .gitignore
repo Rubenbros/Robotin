@@ -4,6 +4,8 @@ __pycache__/
 venv/
 data/sessions/
 data/temp/
+data/token_pool.json
+data/workers_state.json
 *.egg-info/
 dist/
 build/

@@ -31,6 +31,10 @@ WHISPER_LANGUAGE = "es"
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 
+# Multi-bot: pool de tokens y estado de workers
+TOKEN_POOL_FILE = DATA_DIR / "token_pool.json"
+WORKERS_STATE_FILE = DATA_DIR / "workers_state.json"
+
 DANGEROUS_COMMANDS = [
     "rm -rf /",
     "rm -rf ~",
