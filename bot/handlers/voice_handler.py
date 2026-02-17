@@ -58,10 +58,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     session_id = session_manager.get_session_id(session_key)
 
+    async def _notify(msg: str):
+        try:
+            await transcribing_msg.edit_text(msg)
+        except Exception:
+            pass
+
     result = await run_claude(
         prompt=text,
         cwd=cwd,
         session_id=session_id,
+        on_notification=_notify,
     )
 
     await transcribing_msg.delete()

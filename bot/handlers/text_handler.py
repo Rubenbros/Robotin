@@ -35,10 +35,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     thinking_msg = await update.message.reply_text("Procesando...")
 
+    async def _notify(msg: str):
+        try:
+            await thinking_msg.edit_text(msg)
+        except Exception:
+            pass
+
     result = await run_claude(
         prompt=text,
         cwd=cwd,
         session_id=session_id,
+        on_notification=_notify,
     )
 
     await thinking_msg.delete()

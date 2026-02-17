@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import Callable, Coroutine
 from pathlib import Path
+from typing import Any
 
 from bot.config import (
     CLAUDE_MAX_TURNS,
@@ -122,6 +124,7 @@ REGLAS para los marcadores:
 _full_append_prompt = TELEGRAM_CONTEXT + (_skills_prompt or "")
 
 _use_sdk = False
+_SystemMessage = None
 try:
     from claude_code_sdk import (
         query as claude_query,
@@ -132,8 +135,15 @@ try:
     )
     _use_sdk = True
     logger.info("Usando claude-code-sdk")
+    try:
+        from claude_code_sdk import SystemMessage as _SystemMessage
+    except ImportError:
+        pass
 except ImportError:
     logger.info("claude-code-sdk no disponible, usando subprocess como fallback")
+
+# Tipo para callbacks de notificación
+NotifyCallback = Callable[[str], Coroutine[Any, Any, None]] | None
 
 
 def _check_dangerous(prompt: str) -> str | None:
@@ -168,10 +178,16 @@ def stop_claude() -> bool:
     return stopped
 
 
-async def run_claude(prompt: str, cwd: str | None = None, session_id: str | None = None) -> dict:
+async def run_claude(
+    prompt: str,
+    cwd: str | None = None,
+    session_id: str | None = None,
+    on_notification: NotifyCallback = None,
+) -> dict:
     """
     Ejecuta Claude Code con el prompt dado.
     Retorna dict con 'response', 'session_id', 'error'.
+    on_notification: callback async opcional para eventos del sistema (ej. compactación).
     """
     global _active_task
 
@@ -184,7 +200,7 @@ async def run_claude(prompt: str, cwd: str | None = None, session_id: str | None
         }
 
     if _use_sdk:
-        coro = _run_with_sdk(prompt, cwd, session_id)
+        coro = _run_with_sdk(prompt, cwd, session_id, on_notification)
     else:
         coro = _run_with_subprocess(prompt, cwd, session_id)
 
@@ -201,7 +217,9 @@ async def run_claude(prompt: str, cwd: str | None = None, session_id: str | None
         _active_task = None
 
 
-async def _run_with_sdk(prompt: str, cwd: str | None, session_id: str | None) -> dict:
+async def _run_with_sdk(
+    prompt: str, cwd: str | None, session_id: str | None, on_notification: NotifyCallback = None,
+) -> dict:
     """Ejecuta Claude Code usando el SDK oficial."""
     try:
         # Limpiar variable para evitar detección de sesión anidada
@@ -223,10 +241,23 @@ async def _run_with_sdk(prompt: str, cwd: str | None, session_id: str | None) ->
         assistant_texts = []
         new_session_id = session_id
         msg_count = 0
+        _compaction_notified = False
 
         async for message in claude_query(prompt=prompt, options=options):
             msg_count += 1
             logger.debug(f"SDK message #{msg_count}: {type(message).__name__}")
+
+            # Detectar compactación de conversación
+            if _SystemMessage and isinstance(message, _SystemMessage) and not _compaction_notified:
+                content = str(getattr(message, "content", "") or "")
+                if any(kw in content.lower() for kw in ("compact", "summar", "context window", "truncat", "conversation too long")):
+                    _compaction_notified = True
+                    logger.info(f"Compactacion detectada: {content[:200]}")
+                    if on_notification:
+                        try:
+                            await on_notification("Compactando conversacion, espera...")
+                        except Exception:
+                            pass
 
             if isinstance(message, ResultMessage):
                 if message.result:

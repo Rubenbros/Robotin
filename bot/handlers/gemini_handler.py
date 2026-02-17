@@ -61,6 +61,12 @@ async def gemini_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     thinking_msg = await update.message.reply_text("Generando imagen con Gemini...")
 
+    async def _notify(msg: str):
+        try:
+            await thinking_msg.edit_text(msg)
+        except Exception:
+            pass
+
     # Usar chat libre para no contaminar sesiones de proyecto
     session_id = session_manager.get_session_id("__gemini__")
 
@@ -68,6 +74,7 @@ async def gemini_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         prompt=prompt,
         cwd=None,
         session_id=session_id,
+        on_notification=_notify,
     )
 
     await thinking_msg.delete()

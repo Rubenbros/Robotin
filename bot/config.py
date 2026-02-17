@@ -23,7 +23,7 @@ STANDALONE_PROJECTS: dict[str, str] = {
 }
 
 CLAUDE_MAX_TURNS = 0  # 0 = sin límite de turnos
-CLAUDE_TIMEOUT = 600  # 10 minutos (solo subprocess fallback)
+CLAUDE_TIMEOUT = 1800  # 30 minutos (solo subprocess fallback)
 CLAUDE_PERMISSION_MODE = "bypassPermissions"
 
 WHISPER_MODEL = "small"

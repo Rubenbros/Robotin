@@ -46,10 +46,17 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     thinking_msg = await update.message.reply_text("Procesando imagen...")
 
+    async def _notify(msg: str):
+        try:
+            await thinking_msg.edit_text(msg)
+        except Exception:
+            pass
+
     result = await run_claude(
         prompt=prompt,
         cwd=cwd,
         session_id=session_id,
+        on_notification=_notify,
     )
 
     await thinking_msg.delete()
