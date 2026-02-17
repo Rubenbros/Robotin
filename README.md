@@ -8,8 +8,10 @@ Bot privado de Telegram que conecta con [Claude Code](https://docs.anthropic.com
 - Envia imagenes para que Claude las analice
 - Envia notas de voz (transcripcion con Whisper + respuesta de Claude)
 - Gestiona multiples proyectos con sesiones persistentes
+- Sistema multi-bot: crea workers dedicados por proyecto y rol
 - Genera imagenes con Gemini via skill dedicada
 - Botones interactivos nativos de Telegram
+- Menu de comandos nativo con autocompletado
 - Auto-arranque en Windows
 
 ## Requisitos previos
@@ -42,18 +44,43 @@ python -m bot.main
 
 ## Comandos del bot
 
+### Proyectos
+
 | Comando | Descripcion |
 |---------|-------------|
-| `/start` | Bienvenida e info del bot |
-| `/help` | Lista completa de comandos |
 | `/projects` | Proyectos disponibles (botones) |
 | `/select <nombre>` | Seleccionar proyecto |
-| `/nochat` | Volver a chat libre (sin proyecto) |
 | `/newproject <nombre>` | Crear proyecto nuevo |
+| `/nochat` | Volver a chat libre (sin proyecto) |
 | `/status` | Estado de proyecto y sesion |
+
+### Sesion
+
+| Comando | Descripcion |
+|---------|-------------|
 | `/clear` / `/newchat` | Limpiar sesion actual |
 | `/stop` | Detener ejecucion en curso |
+
+### Herramientas
+
+| Comando | Descripcion |
+|---------|-------------|
+| `/ask <pregunta>` | Pregunta rapida sin sesion |
+| `/devbot` | Trabajar en el propio bot |
 | `/gemini [rapido\|pro] [clean] <prompt>` | Generar imagen con Gemini |
+
+### Multi-bot (workers)
+
+| Comando | Descripcion |
+|---------|-------------|
+| `/spawn [rol]` | Crear worker dedicado a un proyecto |
+| `/bots` | Ver workers activos |
+| `/kill [nombre]` | Detener un worker |
+| `/stopall` | Detener todos los workers |
+| `/addtoken <token>` | Agregar token de bot al pool |
+| `/removetoken <id>` | Quitar token del pool |
+
+Los workers son bots independientes dedicados a un proyecto y rol especifico. Cada worker tiene su propia sesion persistente (por proyecto+rol), que se conserva al reiniciar.
 
 ## Configuracion
 
@@ -82,15 +109,28 @@ Esto crea un acceso directo en la carpeta Startup de Windows que ejecuta el bot 
 claude-telegram-bot/
 ├── bot/
 │   ├── config.py              # Configuracion central
-│   ├── main.py                # Entry point
+│   ├── main.py                # Entry point (coordinador)
+│   ├── worker_main.py         # Entry point (workers)
 │   ├── security.py            # Autorizacion
-│   ├── handlers/              # Comandos y mensajes
-│   └── services/              # Claude, Whisper, sesiones
-├── data/                      # Sesiones y archivos temporales
+│   ├── handlers/
+│   │   ├── commands.py        # Comandos generales
+│   │   ├── coordinator_commands.py  # Comandos multi-bot
+│   │   ├── worker_commands.py       # Comandos del worker
+│   │   ├── text_handler.py    # Mensajes de texto
+│   │   ├── image_handler.py   # Imagenes
+│   │   ├── voice_handler.py   # Notas de voz
+│   │   └── callback_handler.py  # Botones inline
+│   └── services/
+│       ├── claude_service.py  # Comunicacion con Claude Code
+│       ├── session_manager.py # Sesiones persistentes
+│       ├── token_pool.py      # Pool de tokens de bot
+│       ├── worker_registry.py # Registro de workers
+│       └── project_manager.py # Gestion de proyectos
+├── data/                      # Sesiones y estado
 ├── setup.py                   # Instalador interactivo
 ├── start_bot.bat              # Launcher con auto-restart
-├── start_bot_hidden.vbs       # Launcher en segundo plano
-├── create_shortcut.ps1        # Crear acceso directo Startup
+├── watchdog.vbs               # Watchdog en segundo plano
+├── create_shortcut.ps1        # Acceso directo Startup
 ├── requirements.txt
 └── .env.example
 ```

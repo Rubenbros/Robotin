@@ -179,7 +179,11 @@ def main():
     print(f"  start_bot.bat        (con auto-restart)")
     print(f"  venv\\Scripts\\python -m bot.main  (directo)")
     print()
-    print("Comandos en Telegram: /start, /help, /projects")
+    print("Comandos basicos: /start, /help, /projects")
+    print("Multi-bot: /spawn, /bots, /kill, /addtoken")
+    print()
+    print("Para crear workers necesitas tokens adicionales")
+    print("de @BotFather y anadirlos con /addtoken en Telegram.")
     print()
 
 
