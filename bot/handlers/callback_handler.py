@@ -5,8 +5,7 @@ from telegram.ext import ContextTypes
 
 from bot.security import authorized_only
 from bot.services import session_manager, project_manager
-from bot.services.claude_service import run_claude
-from bot.services.message_formatter import send_long_message
+from bot.handlers.utils import resolve_context, run_with_feedback
 
 logger = logging.getLogger(__name__)
 
@@ -44,36 +43,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Respuesta interactiva → enviar a Claude
     if data.startswith("reply:"):
         reply_text = data[len("reply:"):]
+        logger.info(f"Callback reply: {reply_text}")
 
         # Marcar el botón pulsado en el mensaje original
-        await query.edit_message_text(
-            query.message.text + f"\n\n_Seleccionado: {reply_text}_",
-            parse_mode="Markdown",
-        )
+        try:
+            await query.edit_message_text(
+                query.message.text + f"\n\nSeleccionado: {reply_text}",
+            )
+        except Exception as e:
+            logger.warning(f"No se pudo editar mensaje original: {e}")
 
-        active = session_manager.get_active_project()
-        if active:
-            proj = project_manager.find_project(active)
-            cwd = proj["path"] if proj else None
-            session_key = active
-        else:
-            cwd = None
-            session_key = "__chat__"
+        ctx = resolve_context()
+        if "error" in ctx:
+            await query.message.reply_text(ctx["error"], parse_mode="Markdown")
+            return
 
-        session_id = session_manager.get_session_id(session_key)
-
-        thinking_msg = await query.message.reply_text("Procesando...")
-
-        result = await run_claude(
+        await run_with_feedback(
             prompt=reply_text,
-            cwd=cwd,
-            session_id=session_id,
+            reply_to=query.message,
+            send_to=query.message.chat,
+            cwd=ctx["cwd"],
+            session_key=ctx["session_key"],
         )
-
-        await thinking_msg.delete()
-
-        if result.get("session_id") and result["session_id"] != session_id:
-            session_manager.save_session_id(session_key, result["session_id"])
-
-        response = result.get("response", "Sin respuesta.")
-        await send_long_message(query.message, response)

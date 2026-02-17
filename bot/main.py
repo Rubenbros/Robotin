@@ -1,5 +1,14 @@
+import atexit
 import logging
+import os
+import signal
 import sys
+import urllib.request
+import urllib.parse
+
+# Limpiar variable CLAUDECODE al inicio para que el SDK funcione
+# aunque el bot se lance desde dentro de una sesión de Claude Code
+os.environ.pop("CLAUDECODE", None)
 
 from telegram.ext import (
     ApplicationBuilder,
@@ -35,6 +44,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def _on_startup(app) -> None:
+    """Notifica al usuario que el bot se ha iniciado."""
+    try:
+        await app.bot.send_message(chat_id=AUTHORIZED_USER_ID, text="🟢 Bot iniciado")
+    except Exception as e:
+        logger.warning(f"No se pudo enviar mensaje de inicio: {e}")
+
+
+_shutdown_sent = False
+
+
+def _send_shutdown_sync():
+    """Envía mensaje de apagado usando HTTP directo (sin asyncio)."""
+    global _shutdown_sent
+    if _shutdown_sent or not TELEGRAM_BOT_TOKEN or not AUTHORIZED_USER_ID:
+        return
+    _shutdown_sent = True
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = urllib.parse.urlencode({
+            "chat_id": AUTHORIZED_USER_ID,
+            "text": "🔴 Bot apagado",
+        }).encode()
+        urllib.request.urlopen(url, data, timeout=5)
+    except Exception as e:
+        logger.warning(f"No se pudo enviar mensaje de apagado: {e}")
+
+
+def _signal_handler(signum, frame):
+    """Maneja SIGTERM/SIGINT para enviar mensaje antes de morir."""
+    _send_shutdown_sync()
+    sys.exit(0)
+
+
+# Registrar atexit como respaldo
+atexit.register(_send_shutdown_sync)
+
+
 def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN no configurado en .env")
@@ -46,7 +93,16 @@ def main() -> None:
 
     logger.info(f"Usuario autorizado: {AUTHORIZED_USER_ID}")
 
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    # Registrar signal handlers para apagado limpio
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+
+    app = (
+        ApplicationBuilder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .post_init(_on_startup)
+        .build()
+    )
 
     # Comandos
     app.add_handler(CommandHandler("start", start_command))

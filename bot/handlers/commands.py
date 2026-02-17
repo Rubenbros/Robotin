@@ -191,10 +191,9 @@ async def newproject_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 @authorized_only
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if stop_claude():
-        await update.message.reply_text("Detenido.")
-    else:
-        await update.message.reply_text("No hay nada en ejecucion.")
+    stopped = stop_claude()
+    if not stopped:
+        await update.message.reply_text("No hay nada en ejecucion.", parse_mode="Markdown")
 
 
 @authorized_only

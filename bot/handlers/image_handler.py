@@ -1,72 +1,115 @@
+import asyncio
 import logging
 from pathlib import Path
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from bot.config import BASE_DIR, TEMP_DIR
+from bot.config import TEMP_DIR
 from bot.security import authorized_only
-from bot.services import session_manager, project_manager
-from bot.services.claude_service import run_claude
-from bot.services.message_formatter import send_long_message
+from bot.handlers.utils import resolve_context, run_with_feedback
 
 logger = logging.getLogger(__name__)
+
+# Buffer para agrupar imágenes de un mismo álbum (media_group)
+_media_groups: dict[str, dict] = {}
+_media_group_locks: dict[str, asyncio.Lock] = {}
 
 
 @authorized_only
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    active = session_manager.get_active_project()
+    media_group_id = update.message.media_group_id
 
-    if active == "__devbot__":
-        cwd = str(BASE_DIR)
-        session_key = "__devbot__"
-        images_dir = BASE_DIR / ".claude-bot-images"
-    elif active:
-        proj = project_manager.find_project(active)
-        if not proj:
-            await update.message.reply_text(f"Proyecto `{active}` no encontrado.", parse_mode="Markdown")
-            return
-        cwd = proj["path"]
-        session_key = active
-        images_dir = Path(cwd) / ".claude-bot-images"
+    # Imagen suelta (sin álbum) — procesar directamente
+    if not media_group_id:
+        await _process_images(update, context, [update.message])
+        return
+
+    # Imagen parte de un álbum — agrupar y esperar
+    if media_group_id not in _media_group_locks:
+        _media_group_locks[media_group_id] = asyncio.Lock()
+
+    async with _media_group_locks[media_group_id]:
+        if media_group_id not in _media_groups:
+            _media_groups[media_group_id] = {
+                "messages": [],
+                "first_update": update,
+                "scheduled": False,
+            }
+
+        _media_groups[media_group_id]["messages"].append(update.message)
+
+        if not _media_groups[media_group_id]["scheduled"]:
+            _media_groups[media_group_id]["scheduled"] = True
+            asyncio.create_task(_process_media_group(media_group_id, update, context))
+
+
+async def _process_media_group(
+    media_group_id: str, update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Espera a que lleguen todas las imágenes del álbum y las procesa juntas."""
+    await asyncio.sleep(1.0)
+
+    group_data = _media_groups.pop(media_group_id, None)
+    _media_group_locks.pop(media_group_id, None)
+
+    if not group_data:
+        return
+
+    await _process_images(update, context, group_data["messages"])
+
+
+async def _process_images(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, messages: list
+) -> None:
+    """Descarga y procesa una o varias imágenes en una sola llamada a Claude."""
+    ctx = resolve_context()
+    if "error" in ctx:
+        await update.message.reply_text(ctx["error"], parse_mode="Markdown")
+        return
+
+    if ctx["cwd"]:
+        images_dir = Path(ctx["cwd"]) / ".claude-bot-images"
     else:
-        cwd = None
-        session_key = "__chat__"
         images_dir = TEMP_DIR
 
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Descargar imagen
-    photo = update.message.photo[-1]
-    file = await photo.get_file()
-    image_path = images_dir / f"{file.file_unique_id}.jpg"
-    await file.download_to_drive(str(image_path))
-    logger.info(f"Imagen guardada: {image_path}")
+    # Descargar todas las imágenes
+    image_paths = []
+    caption = None
+    for msg in messages:
+        if not msg.photo:
+            continue
+        photo = msg.photo[-1]
+        file = await photo.get_file()
+        image_path = images_dir / f"{file.file_unique_id}.jpg"
+        await file.download_to_drive(str(image_path))
+        image_paths.append(image_path)
+        logger.info(f"Imagen guardada: {image_path}")
+        if not caption and msg.caption:
+            caption = msg.caption
 
-    caption = update.message.caption or "Analiza esta imagen"
-    prompt = f"{caption}\n\n[La imagen está en: {image_path.resolve()}]"
+    if not image_paths:
+        return
 
-    session_id = session_manager.get_session_id(session_key)
+    caption = caption or ("Analiza esta imagen" if len(image_paths) == 1 else "Analiza estas imagenes")
 
-    thinking_msg = await update.message.reply_text("Procesando imagen...")
+    # Construir prompt con todas las rutas
+    paths_text = "\n".join(f"- {p.resolve()}" for p in image_paths)
+    if len(image_paths) == 1:
+        prompt = f"{caption}\n\n[La imagen está en: {image_paths[0].resolve()}]"
+    else:
+        prompt = f"{caption}\n\n[Las {len(image_paths)} imágenes están en:\n{paths_text}]"
 
-    async def _notify(msg: str):
-        try:
-            await thinking_msg.edit_text(msg)
-        except Exception:
-            pass
+    n = len(image_paths)
+    thinking_text = f"Procesando {n} imagenes..." if n > 1 else "Procesando imagen..."
 
-    result = await run_claude(
+    await run_with_feedback(
         prompt=prompt,
-        cwd=cwd,
-        session_id=session_id,
-        on_notification=_notify,
+        reply_to=update.message,
+        send_to=update,
+        cwd=ctx["cwd"],
+        session_key=ctx["session_key"],
+        thinking_text=thinking_text,
     )
-
-    await thinking_msg.delete()
-
-    if result.get("session_id") and result["session_id"] != session_id:
-        session_manager.save_session_id(session_key, result["session_id"])
-
-    response = result.get("response", "Sin respuesta.")
-    await send_long_message(update, response)

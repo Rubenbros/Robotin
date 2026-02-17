@@ -2,9 +2,13 @@ import asyncio
 import json
 import logging
 import os
+import time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
+
+# Limpiar CLAUDECODE del proceso actual para que el SDK no detecte sesión anidada
+os.environ.pop("CLAUDECODE", None)
 
 from bot.config import (
     CLAUDE_MAX_TURNS,
@@ -237,7 +241,7 @@ async def _run_with_sdk(
             max_turns=CLAUDE_MAX_TURNS,
             permission_mode=CLAUDE_PERMISSION_MODE,
             env=clean_env,
-            extra_args={"--chrome": None},
+            extra_args={"chrome": None},
         )
         options.append_system_prompt = _full_append_prompt
         if cwd:
@@ -250,6 +254,8 @@ async def _run_with_sdk(
         new_session_id = session_id
         msg_count = 0
         _compaction_notified = False
+        _last_progress_time = 0.0
+        _PROGRESS_INTERVAL = 3  # segundos entre actualizaciones
 
         async for message in claude_query(prompt=prompt, options=options):
             msg_count += 1
@@ -277,6 +283,18 @@ async def _run_with_sdk(
                     for block in message.content:
                         if isinstance(block, TextBlock) and block.text.strip():
                             assistant_texts.append(block.text)
+                            # Enviar progreso intermedio (throttled)
+                            if on_notification:
+                                now = time.monotonic()
+                                if now - _last_progress_time >= _PROGRESS_INTERVAL:
+                                    _last_progress_time = now
+                                    preview = block.text.strip()
+                                    if len(preview) > 200:
+                                        preview = preview[:200] + "..."
+                                    try:
+                                        await on_notification(f"⏳ {preview}")
+                                    except Exception:
+                                        pass
 
         # Prioridad: result > último texto del asistente > todos los textos
         if not result_text and assistant_texts:

@@ -8,17 +8,27 @@ logger = logging.getLogger(__name__)
 
 STATE_FILE = SESSIONS_DIR / "user_state.json"
 
+# Caché en memoria — se carga una sola vez
+_cache: dict | None = None
+
 
 def _load_state() -> dict:
+    global _cache
+    if _cache is not None:
+        return _cache
     if STATE_FILE.exists():
         try:
-            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            _cache = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            return _cache
         except (json.JSONDecodeError, OSError):
             logger.warning("Estado corrupto, reiniciando")
-    return {"active_project": None, "sessions": {}}
+    _cache = {"active_project": None, "sessions": {}}
+    return _cache
 
 
 def _save_state(state: dict) -> None:
+    global _cache
+    _cache = state
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
