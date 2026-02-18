@@ -71,6 +71,7 @@ def main():
         ApplicationBuilder,
         CommandHandler,
         MessageHandler,
+        MessageReactionHandler,
         CallbackQueryHandler,
         filters,
     )
@@ -78,6 +79,7 @@ def main():
     from bot.handlers.image_handler import handle_image
     from bot.handlers.voice_handler import handle_voice
     from bot.handlers.callback_handler import handle_callback
+    from bot.handlers.reaction_handler import handle_reaction
     from bot.handlers.worker_commands import (
         start_command,
         help_command,
@@ -140,13 +142,20 @@ def main():
     # Callbacks (botones inline)
     app.add_handler(CallbackQueryHandler(handle_callback))
 
+    # Reacciones (corazon = confirmar)
+    app.add_handler(MessageReactionHandler(handle_reaction))
+
     # Mensajes
     app.add_handler(MessageHandler(filters.PHOTO, handle_image))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     logger.info(f"Worker iniciado: {bot_label} (PID {os.getpid()})")
-    app.run_polling(drop_pending_updates=True)
+    from telegram import Update
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES,
+    )
 
 
 if __name__ == "__main__":
